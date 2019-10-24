@@ -30,6 +30,7 @@ class Action:
         self.category = kwargs.get('category')
         self.map_params = kwargs.get('map_params')
         self.owner = kwargs.get('owner') or 'AWS'
+        self.project_name = kwargs.get('project_name')
         self.run_order = kwargs.get('run_order')
         self.index = kwargs.get('index')
         self.action_name = kwargs.get('action_name')
@@ -51,7 +52,7 @@ class Action:
                 return 'arn:aws:iam::{0}:role/{1}'.format(self.account_id, self.map_params["default_providers"]["deploy"].get('properties', {}).get("role"))
         return None
 
-    def _generate_configuration(self): #pylint: disable=R0912, R0911, R0915
+    def _generate_configuration(self): #pylint: disable=R0912, R0911
         if self.provider == "Manual" and self.category == "Approval":
             _props = {
                 "CustomData": self.target.get('properties', {}).get('message') or "Approval stage for {0}".format(self.map_params['name'])
@@ -118,55 +119,27 @@ class Action:
                                     'input', ''))
             }
         if self.provider == "CloudFormation":
-            _path_prefix = self.target.get(
-                'properties', {}).get(
-                    'root_dir') or self.map_params.get(
-                        'default_providers', {}).get(
-                            'deploy', {}).get(
-                                'properties', {}).get(
-                                    'root_dir') or ""
-            if _path_prefix and not _path_prefix.endswith('/'):
-                _path_prefix = "{}/".format(_path_prefix)
-            _input_artifact = "{map_name}-build".format(
-                map_name=self.map_params['name'],
-            )
             _props = {
                 "ActionMode": self.action_mode,
                 "StackName": self.target.get('properties', {}).get('stack_name') or "{0}{1}".format(ADF_STACK_PREFIX, self.map_params['name']),
                 "ChangeSetName": "{0}{1}".format(ADF_STACK_PREFIX, self.map_params['name']),
-                "TemplateConfiguration": "{input_artifact}::{path_prefix}params/{target_name}_{region}.json".format(
-                    input_artifact=_input_artifact,
-                    path_prefix=_path_prefix,
-                    target_name=self.target['name'],
-                    region=self.region,
-                ),
+                "TemplateConfiguration": "{0}-build::params/{1}_{2}.json".format(self.map_params['name'], self.target['name'], self.region),
                 "Capabilities": "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND",
                 "RoleArn": "arn:aws:iam::{0}:role/adf-cloudformation-deployment-role".format(self.target['id']) if not self.role_arn else self.role_arn
             }
             if self.map_params.get('default_providers', {}).get('build', {}).get('properties', {}).get('environment_variables', {}).get('CONTAINS_TRANSFORM'):
-                _props["TemplatePath"] = "{input_artifact}::{path_prefix}template_{region}.yml".format(
-                    input_artifact=_input_artifact,
-                    path_prefix=_path_prefix,
-                    region=self.region,
-                )
+                _props["TemplatePath"] = "{0}-build::template_{1}.yml".format(self.map_params['name'], self.region)
             else:
-                _template_filename = self.target.get(
+                _props["TemplatePath"] = self.target.get(
                     'properties', {}).get(
                         'template_filename') or self.map_params.get(
                             'default_providers', {}).get(
                                 'deploy', {}).get(
                                     'properties', {}).get(
-                                        'template_filename') or "template.yml"
-                _props["TemplatePath"] = "{input_artifact}::{path_prefix}{filename}".format(
-                    input_artifact=_input_artifact,
-                    path_prefix=_path_prefix,
-                    filename=_template_filename,
-                )
+                                        'template_filename') or "{0}-build::template.yml".format(
+                                            self.map_params['name'])
             if self.target.get('properties', {}).get('outputs'):
-                _props['OutputFileName'] = '{path_prefix}{filename}.json'.format(
-                    path_prefix=_path_prefix,
-                    filename=self.target['properties']['outputs'],
-                )
+                _props['OutputFileName'] = '{0}.json'.format(self.target['properties']['outputs'])
             if self.target.get('properties', {}).get('param_overrides'):
                 _overrides = {}
                 for override in self.target.get('properties', {}).get('param_overrides', []):
@@ -186,8 +159,10 @@ class Action:
                 "ProviderName": self.map_params['default_providers']['build'].get('properties', {}).get('provider_name') # Enter the provider name you configured in the Jenkins plugin
             }
         if self.provider == "CodeBuild":
+            if self.project_name is None:
+                self.project_name = "adf-build-{0}".format(self.map_params['name'])
             return {
-                "ProjectName": "adf-build-{0}".format(self.map_params['name'])
+                "ProjectName": self.project_name
             }
         if self.provider == "ServiceCatalog":
             return {
